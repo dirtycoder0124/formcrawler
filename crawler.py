@@ -45,7 +45,7 @@ async def crawl(url, depth):
 
 async def main():
     domain = input("Enter the domain you want to crawl (e.g., example.com): ")
-    starting_url = "http://" + domain
+    starting_url = "https://" + domain if not domain.startswith("https://") else domain
     await crawl(starting_url, 0)
 
 if __name__ == "__main__":
