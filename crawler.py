@@ -1,84 +1,54 @@
-import requests
+import aiohttp
+import asyncio
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
-from queue import Queue
-from concurrent.futures import ThreadPoolExecutor
 import time
 
 visited_urls = set()
 max_depth = 3  # Maximum recursion depth
-concurrent_requests = 5  # Number of concurrent requests
+concurrent_requests = 10  # Number of concurrent requests
 crawl_delay = 1  # Delay between requests to avoid overloading the server
-robot_disallowed = set()  # Set to store URLs disallowed by robots.txt
 
-def is_valid_url(url):
-    parsed_url = urlparse(url)
-    return bool(parsed_url.scheme) and bool(parsed_url.netloc)
+async def fetch(url):
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url, allow_redirects=True, timeout=10) as response:
+                if response.status == 200:
+                    return await response.text()
+                else:
+                    return None
+        except Exception as e:
+            return None
 
-def get_robots_txt(url):
-    try:
-        response = requests.get(urljoin(url, "/robots.txt"))
-        if response.status_code == 200:
-            return response.text.splitlines()
-        else:
-            print("Failed to retrieve robots.txt:", url)
-            return []
-    except Exception as e:
-        print("Error occurred while fetching robots.txt:", e)
-        return []
+def get_internal_links(url, html_content):
+    internal_links = set()
+    soup = BeautifulSoup(html_content, 'html.parser')
+    for link in soup.find_all('a', href=True):
+        next_url = urljoin(url, link['href'])
+        parsed_next_url = urlparse(next_url)
+        if parsed_next_url.scheme and parsed_next_url.netloc == urlparse(url).netloc:
+            internal_links.add(next_url)
+    return internal_links
 
-def parse_robots_txt(robots_content):
-    disallowed = set()
-    for line in robots_content:
-        if line.startswith("Disallow:"):
-            disallowed_url = line.split(" ")[1].strip()
-            disallowed.add(disallowed_url)
-    return disallowed
+async def crawl(url, depth):
+    if depth <= max_depth and url not in visited_urls:
+        visited_urls.add(url)
+        html_content = await fetch(url)
+        if html_content:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            forms = soup.find_all('form')
+            input_texts = soup.find_all('input', {'type': 'text'})
+            if forms or input_texts:
+                print("\033[92mForm Found\033[0m:", url)  # Green color for "Form Found" message
+            internal_links = get_internal_links(url, html_content)
+            await asyncio.gather(*[crawl(link, depth + 1) for link in internal_links])
 
-def can_crawl(url):
-    parsed_url = urlparse(url)
-    if parsed_url.netloc in robot_disallowed:
-        return False
-    return True
-
-def crawl_worker(url, depth):
-    try:
-        response = requests.get(url, allow_redirects=True, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-        forms = soup.find_all('form')
-        if forms and url not in visited_urls:
-            print("\033[92mForm Found\033[0m:", url)  # Green color for "Form Found" message
-            visited_urls.add(url)
-        for link in soup.find_all('a', href=True):
-            next_url = urljoin(url, link['href'])
-            if is_valid_url(next_url) and can_crawl(next_url) and next_url not in visited_urls:
-                crawl_queue.put((next_url, depth + 1))
-    except Exception as e:
-        pass
-
-def crawl_worker_wrapper(args):
-    crawl_worker(*args)
-    time.sleep(crawl_delay)
-
-def crawl_for_forms(starting_url):
-    crawl_queue.put((starting_url, 0))
-    while not crawl_queue.empty():
-        url, depth = crawl_queue.get()
-        if depth <= max_depth:
-            with ThreadPoolExecutor(max_workers=concurrent_requests) as executor:
-                executor.map(crawl_worker_wrapper, [(url, depth) for _ in range(concurrent_requests)])
-        else:
-            print("Maximum depth reached for URL:", url)
-
-def main():
+async def main():
     domain = input("Enter the domain you want to crawl (e.g., example.com): ")
     starting_url = "http://" + domain
-    robots_content = get_robots_txt(starting_url)
-    global robot_disallowed
-    robot_disallowed = parse_robots_txt(robots_content)
-    crawl_for_forms(starting_url)
+    await crawl(starting_url, 0)
 
 if __name__ == "__main__":
-    crawl_queue = Queue()
-    main()
+    start_time = time.time()
+    asyncio.run(main())
+    print("Execution time:", round(time.time() - start_time, 2), "seconds")
