@@ -1,0 +1,14 @@
+aiohttp
+aiosignal
+attrs
+beautifulsoup4
+bs4
+certifi
+charset-normalizer
+frozenlist
+idna
+multidict
+requests
+soupsieve
+urllib3
+yarl
