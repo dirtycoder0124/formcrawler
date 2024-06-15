@@ -3,6 +3,7 @@ import asyncio
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 import time
+import argparse
 
 visited_urls = set()
 max_depth = 3  # Maximum recursion depth
@@ -44,9 +45,29 @@ async def crawl(url, depth):
             await asyncio.gather(*[crawl(link, depth + 1) for link in internal_links])
 
 async def main():
-    domain = input("Enter the domain you want to crawl (e.g., example.com): ")
-    starting_url = "https://" + domain if not domain.startswith("https://") else domain
-    await crawl(starting_url, 0)
+    parser = argparse.ArgumentParser(description="Crawl a domain or list of domains.")
+    parser.add_argument('input', type=str, help='Domain to crawl or file containing list of domains')
+    args = parser.parse_args()
+
+    input_arg = args.input
+
+    # Check if the input is a file
+    if input_arg.endswith('.txt'):
+        try:
+            with open(input_arg, 'r') as file:
+                domains = file.readlines()
+            for domain in domains:
+                domain = domain.strip()
+                if domain:  # Ensure the domain is not empty
+                    starting_url = "https://" + domain if not domain.startswith("https://") else domain
+                    await crawl(starting_url, 0)
+        except FileNotFoundError:
+            print(f"The file {input_arg} does not exist.")
+            return
+    else:
+        domain = input_arg
+        starting_url = "https://" + domain if not domain.startswith("https://") else domain
+        await crawl(starting_url, 0)
 
 if __name__ == "__main__":
     start_time = time.time()
